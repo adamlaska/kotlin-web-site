@@ -350,7 +350,7 @@ is already imported and used in `ContentView.swift` with `import shared`.
    see the [new memory manager migration guide](https://github.com/JetBrains/kotlin/blob/master/kotlin-native/NEW_MM.md#new-memory-manager-migration-guide).
    That's why `DispatchQueue.main.async` is used to update the `text` property.
 
-6. Run both the iOS and Android applications from Android Studio and make sure your app's logic is synced:
+6. Re-run both **androidApp** and **iosApp** configurations from Android Studio to make sure your app's logic is synced:
 
     ![Final results](multiplatform-mobile-upgrade.png){width="500"}
 
