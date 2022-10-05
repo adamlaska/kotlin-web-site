@@ -1,4 +1,4 @@
-[//]: # (title: Create a multiplatfotm app using Ktor and SQLDelight – tutorial)
+[//]: # (title: Create a multiplatform app using Ktor and SQLDelight – tutorial)
 
 This tutorial demonstrates how to use Android Studio to create a mobile application for iOS and Android using Kotlin
 Multiplatform Mobile with Ktor and SQLDelight.
@@ -7,7 +7,7 @@ The application will include a module with shared code for both iOS and Android 
 access layers are implemented only once in the shared module, while the UI of both applications will be native.
 
 The output will be an app that retrieves data over the internet from a
-public [SpaceX API](https://docs.spacexdata.com/?version=latest), saves it in a local database, and displays a list of
+public [SpaceX API](https://github.com/r-spacex/SpaceX-API/tree/master/docs#rspacex-api-docs), saves it in a local database, and displays a list of
 SpaceX rocket launches together with the launch date, results, and a detailed description of the launch:
 
 ![Emulator and Simulator](android-and-ios.png){width=500}
@@ -74,6 +74,7 @@ Also, both `kotlinx.serialization` and SQLDelight libraries require additional c
     val coroutinesVersion = "%coroutinesVersion%"
     val ktorVersion = "%ktorVersion%"
     val sqlDelightVersion = "%sqlDelightVersion%"
+    val sqlDelightVersion = "0.4.0"
 
     sourceSets {
         val commonMain by getting {
@@ -83,6 +84,7 @@ Also, both `kotlinx.serialization` and SQLDelight libraries require additional c
                 implementation("io.ktor:ktor-client-content-negotiation:$ktorVersion")
                 implementation("io.ktor:ktor-serialization-kotlinx-json:$ktorVersion")
                 implementation("com.squareup.sqldelight:runtime:$sqlDelightVersion")
+                implementation("org.jetbrains.kotlinx:kotlinx-datetime:$dateTimeVersion")
                 }
             }
         val androidMain by getting {
@@ -162,7 +164,7 @@ The application data model will have three entity classes with:
 
    ```kotlin
    ```
-   {src="multiplatform-mobile-tutorial/Entity.kt" initial-collapse-state="collapsed" collapsed-title="data class RocketLaunch" lines="3-42" }
+   {src="multiplatform-mobile-tutorial/Entity.kt" initial-collapse-state="collapsed" collapsed-title="data class RocketLaunch" lines="3-41" }
 
 Each serializable class must be marked with the `@Serializable` annotation. The `kotlinx.serialization` plugin
 automatically generates a default serializer for `@Serializable` classes unless you explicitly pass a link to a
@@ -208,26 +210,19 @@ First, create the `.sq` file, which will contain all the needed SQL queries. By 
    the `com.jetbrains.handson.kmm.shared.cache` package.
 2. Inside it, create an `.sq` file with the name of the database, `AppDatabase.sq`. All the SQL queries for
    the application will be in this file.
-3. The database will contain two tables with data about launches and rockets. To create these tables, add the following
+3. The database will contain a table with data about launches and rockets. To create it, add the following
    code to the `AppDatabase.sq` file:
 
    ```text
    CREATE TABLE Launch (
-       flightNumber    INTEGER NOT NULL,
-       missionName     TEXT    NOT NULL,
-       launchYear      INTEGER AS Int NOT NULL DEFAULT 0,
-       rocketId        TEXT    NOT NULL,
-       details         TEXT,
-       launchSuccess   INTEGER AS Boolean DEFAULT NULL,
-       launchDateUTC   TEXT    NOT NULL,
-       missionPatchUrl TEXT,
-       articleUrl      TEXT
-   );
-   
-   CREATE TABLE Rocket (
-       id   TEXT NOT NULL PRIMARY KEY,
-       name TEXT NOT NULL,
-       type TEXT NOT NULL
+       flightNumber INTEGER NOT NULL,
+       missionName TEXT NOT NULL,
+       details TEXT,
+       launchSuccess INTEGER AS Boolean DEFAULT NULL,
+       launchDateUTC TEXT NOT NULL,
+       patchUrlSmall TEXT,
+       patchUrlLarge TEXT,
+       articleUrl TEXT
    );
    ```
 
@@ -235,12 +230,8 @@ First, create the `.sq` file, which will contain all the needed SQL queries. By 
 
    ```text
    insertLaunch:
-   INSERT INTO Launch(flightNumber, missionName, launchYear, rocketId, details, launchSuccess, launchDateUTC, missionPatchUrl, articleUrl)
-   VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?);
-   
-   insertRocket:
-   INSERT INTO Rocket(id, name, type)
-   VALUES(?, ?, ?);
+   INSERT INTO Launch(flightNumber, missionName, details, launchSuccess, launchDateUTC, patchUrlSmall, patchUrlLarge, articleUrl)
+   VALUES(?, ?, ?, ?, ?, ?, ?, ?);
    ```
 
 5. To clear data in the tables, declare SQL delete functions:
@@ -248,23 +239,14 @@ First, create the `.sq` file, which will contain all the needed SQL queries. By 
    ```text
    removeAllLaunches:
    DELETE FROM Launch;
-   
-   removeAllRockets:
-   DELETE FROM Rocket;
    ```
 
-6. In the same way, declare functions to retrieve data. For data about a rocket, use its identifier and select
-   information about all its launches using a JOIN statement:
+6. In the same way, declare functions to retrieve data:
 
    ```text
-   selectRocketById:
-   SELECT * FROM Rocket
-   WHERE id = ?;
-   
    selectAllLaunchesInfo:
-   SELECT Launch.*, Rocket.*
-   FROM Launch
-   LEFT JOIN Rocket ON Rocket.id == Launch.rocketId;
+   SELECT Launch.*
+   FROM Launch;
    ```
 
 When the project is compiled, the generated Kotlin code will be stored in the `shared/build/generated/sqldelight`
@@ -346,10 +328,6 @@ a `Database` class, which will wrap the `AppDatabase` class and contain caching 
 
    ```kotlin
    package com.jetbrains.handson.kmm.shared.cache
-   
-   import com.jetbrains.handson.kmm.shared.entity.Links
-   import com.jetbrains.handson.kmm.shared.entity.Rocket
-   import com.jetbrains.handson.kmm.shared.entity.RocketLaunch
 
    internal class Database(databaseDriverFactory: DatabaseDriverFactory) {
        private val database = AppDatabase(databaseDriverFactory.createDriver())
@@ -375,39 +353,36 @@ a `Database` class, which will wrap the `AppDatabase` class and contain caching 
 4. Create a function to get a list of all the rocket launches:
 
    ```kotlin
+   import Links
+   import Patch
+   import RocketLaunch
+
    internal fun getAllLaunches(): List<RocketLaunch> {
        return dbQuery.selectAllLaunchesInfo(::mapLaunchSelecting).executeAsList()
    }
-   
+
    private fun mapLaunchSelecting(
        flightNumber: Long,
        missionName: String,
-       launchYear: Int,
-       rocketId: String,
        details: String?,
        launchSuccess: Boolean?,
        launchDateUTC: String,
-       missionPatchUrl: String?,
+       patchUrlSmall: String?,
+       patchUrlLarge: String?,
        articleUrl: String?,
-       rocket_id: String?,
-       name: String?,
-       type: String?
    ): RocketLaunch {
        return RocketLaunch(
            flightNumber = flightNumber.toInt(),
            missionName = missionName,
-           launchYear = launchYear,
            details = details,
            launchDateUTC = launchDateUTC,
            launchSuccess = launchSuccess,
-           rocket = Rocket(
-               id = rocketId,
-               name = name!!,
-               type = type!!
-           ),
            links = Links(
-               missionPatchUrl = missionPatchUrl,
-               articleUrl = articleUrl
+               patch = Patch(
+                   small = patchUrlSmall,
+                   large = patchUrlLarge
+               ),
+               article = articleUrl
            )
        )
    }
@@ -420,39 +395,25 @@ a `Database` class, which will wrap the `AppDatabase` class and contain caching 
 
    ```kotlin
    internal fun createLaunches(launches: List<RocketLaunch>) {
-       dbQuery.transaction {
-           launches.forEach { launch ->
-               val rocket = dbQuery.selectRocketById(launch.rocket.id).executeAsOneOrNull()
-               if (rocket == null) {
-                   insertRocket(launch)
+           dbQuery.transaction {
+               launches.forEach { launch ->
+                   insertLaunch(launch)
                }
-   
-               insertLaunch(launch)
            }
        }
-   }
    
-   private fun insertRocket(launch: RocketLaunch) {
-       dbQuery.insertRocket(
-           id = launch.rocket.id,
-           name = launch.rocket.name,
-           type = launch.rocket.type
-       )
-   }
-   
-   private fun insertLaunch(launch: RocketLaunch) {
-       dbQuery.insertLaunch(
-           flightNumber = launch.flightNumber.toLong(),
-           missionName = launch.missionName,
-           launchYear = launch.launchYear,
-           rocketId = launch.rocket.id,
-           details = launch.details,
-           launchSuccess = launch.launchSuccess ?: false,
-           launchDateUTC = launch.launchDateUTC,
-           missionPatchUrl = launch.links.missionPatchUrl,
-           articleUrl = launch.links.articleUrl
-       )
-   }
+       private fun insertLaunch(launch: RocketLaunch) {
+           dbQuery.insertLaunch(
+               flightNumber = launch.flightNumber.toLong(),
+               missionName = launch.missionName,
+               details = launch.details,
+               launchSuccess = launch.launchSuccess ?: false,
+               launchDateUTC = launch.launchDateUTC,
+               patchUrlSmall = launch.links.patch?.small,
+               patchUrlLarge = launch.links.patch?.large,
+               articleUrl = launch.links.article
+           )
+       }
    ```
 
 The `Database` class instance will be created later, along with the SDK facade class.
@@ -464,8 +425,8 @@ The `Database` class instance will be created later, along with the SDK facade c
 
 ## Implement an API service
 
-To retrieve data via the internet, you'll need the [SpaceX public API](https://docs.spacexdata.com/?version=latest) and
-a single method to retrieve the list of all launches from the `v3/launches` endpoint.
+To retrieve data via the internet, you'll need the [SpaceX public API](https://github.com/r-spacex/SpaceX-API/tree/master/docs#rspacex-api-docs)
+and a single method to retrieve the list of all launches from the `v3/launches` endpoint.
 
 Create a class that will connect the application to the API:
 
@@ -475,7 +436,7 @@ Create a class that will connect the application to the API:
    ```kotlin
    package com.jetbrains.handson.kmm.shared.network
 
-   import com.jetbrains.handson.kmm.shared.entity.RocketLaunch
+   import RocketLaunch
    import io.ktor.client.*
    import io.ktor.client.call.*
    import io.ktor.client.plugins.contentnegotiation.*
@@ -506,7 +467,7 @@ Create a class that will connect the application to the API:
 
    ```kotlin
    suspend fun getAllLaunches(): List<RocketLaunch> {
-       return httpClient.get("https://api.spacexdata.com/v3/launches").body()
+       return httpClient.get("https://api.spacexdata.com/v5/launches").body()
    }
    ```
 
@@ -543,12 +504,12 @@ public class.
 
    ```kotlin
    package com.jetbrains.handson.kmm.shared
-   
+
    import com.jetbrains.handson.kmm.shared.cache.Database
    import com.jetbrains.handson.kmm.shared.cache.DatabaseDriverFactory
-   import com.jetbrains.handson.kmm.shared.network.SpaceXApi
-   import com.jetbrains.handson.kmm.shared.entity.RocketLaunch
-
+   import RocketLaunch
+   import com.jetbrains.shared.com.jetbrains.handson.kmm.shared.SpaceXApi
+   
    class SpaceXSDK(databaseDriverFactory: DatabaseDriverFactory) {
        private val database = Database(databaseDriverFactory)
        private val api = SpaceXApi()
@@ -604,11 +565,11 @@ the `androidApp/build.gradle.kts`:
 dependencies {
     implementation(project(":shared"))
     implementation("com.google.android.material:material:1.6.1")
-    implementation("androidx.appcompat:appcompat:1.4.2")
+    implementation("androidx.appcompat:appcompat:1.5.1")
     implementation("androidx.constraintlayout:constraintlayout:2.1.4")
     implementation("androidx.swiperefreshlayout:swiperefreshlayout:1.1.0")
-    implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.6.2")
-    implementation("androidx.core:core-ktx:1.8.0")
+    implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.6.4")
+    implementation("androidx.core:core-ktx:1.9.0")
     implementation("androidx.recyclerview:recyclerview:1.2.1")
     implementation("androidx.cardview:cardview:1.0.0")
 }

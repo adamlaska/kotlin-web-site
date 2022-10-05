@@ -350,7 +350,7 @@ Now it's time to [wrap up your project](multiplatform-mobile-wrap-up.md) and see
 
 * Explore various approaches to [composition of suspending functions](composing-suspending-functions.md).
 * Learn more about the [interoperability with Objective-C frameworks and libraries](native-objc-interop.md).
-* Complete this tutorial on [networking and data storage](https://play.kotlinlang.org/hands-on/Networking%20and%20Data%20Storage%20with%20Kotlin%20Multiplatfrom%20Mobile/01_Introduction).
+* Complete this tutorial on [networking and data storage](multiplatform-mobile-ktor-sqldelight.md).
 
 ## Get help
 
