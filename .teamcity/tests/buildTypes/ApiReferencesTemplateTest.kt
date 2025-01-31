@@ -1,5 +1,7 @@
 package tests.buildTypes
 
+import builds.apiReferences.kotlinx.coroutines.KotlinxCoroutinesBuildApiReference
+import builds.apiReferences.kotlinx.serialization.KotlinxSerializationBuildApiReference
 import jetbrains.buildServer.configs.kotlin.BuildStep
 import jetbrains.buildServer.configs.kotlin.BuildType
 import jetbrains.buildServer.configs.kotlin.FailureAction
@@ -15,19 +17,13 @@ object ApiReferencesTemplateTest: BuildType({
     root(vcsRoots.KotlinLangOrg)
   }
 
-  triggers {
-    vcs {
-      branchFilter = "+:pull/*"
-    }
-  }
-
   steps {
     script {
       scriptContent = """
         yarn install --frozen-lockfile
         yarn build:production
       """.trimIndent()
-      dockerImage = "node:14-alpine"
+      dockerImage = "node:16-alpine"
     }
     script {
       scriptContent = "./scripts/dokka/up.sh"
@@ -43,7 +39,7 @@ object ApiReferencesTemplateTest: BuildType({
 
   requirements {
     exists("docker.server.version")
-    contains("docker.server.osType", "linux")
+    doesNotContain("docker.server.osType", "windows")
   }
 
   features {
@@ -59,7 +55,7 @@ object ApiReferencesTemplateTest: BuildType({
   }
 
   dependencies {
-    dependency(builds.apiReferences.buildTypes.KotlinxCoroutines) {
+    dependency(KotlinxCoroutinesBuildApiReference) {
       snapshot {
         onDependencyFailure = FailureAction.CANCEL
         onDependencyCancel = FailureAction.CANCEL
@@ -70,7 +66,7 @@ object ApiReferencesTemplateTest: BuildType({
       }
     }
 
-    dependency(builds.apiReferences.buildTypes.KotlinxSerialization) {
+    dependency(KotlinxSerializationBuildApiReference) {
       snapshot {
         onDependencyFailure = FailureAction.CANCEL
         onDependencyCancel = FailureAction.CANCEL
